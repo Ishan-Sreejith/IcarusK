@@ -1,5 +1,7 @@
 # CoRe Language - Complete JIT Compiler System
 
+**Artificial Intelligence was used to create documentation and to automate testing with test folders.**
+
 **Status**: ✅ **FULLY OPERATIONAL**
 
 A high-performance, multi-pathway programming language with AOT, JIT, Interpreter, and VM execution modes.
