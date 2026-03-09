@@ -77,7 +77,11 @@ say: "Sum: " + str(sum)`;
                 if (p >= 0) {
                     const name = rest.slice(0, p).trim();
                     const expr = this.rewriteExpr(rest.slice(p + 1).trim());
-                    out.push(`let ${name} = ${expr};`);
+                    if (expr.endsWith("{")) {
+                        out.push(`let ${name} = ${expr}`);
+                    } else {
+                        out.push(`let ${name} = ${expr};`);
+                    }
                     continue;
                 }
             }
@@ -139,7 +143,8 @@ say: "Sum: " + str(sum)`;
     }
 
     rewriteStatement(line) {
-        if (line.endsWith("{") || line.endsWith("}") || line.endsWith(";")) return line;
+        if (line.endsWith("{") || line.endsWith("}") || line.endsWith(";") || line.endsWith(",")) return line;
+        if (/^["'][^"']+["']\s*:/.test(line)) return line;
         return `${this.rewriteExpr(line)};`;
     }
 }
