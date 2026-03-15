@@ -12,7 +12,9 @@ export class CoReJsEngine {
             "JavaScript Engine",
             "Direct V8 Execution",
             "No WebAssembly Required",
-            "CoRe Syntax Transpilation"
+            "CoRe Syntax Transpilation",
+            "Builtin Plugins",
+            "Virtual File System"
         ]);
     }
 
@@ -42,6 +44,15 @@ say: "Sum: " + str(sum)`;
                 "__num",
                 "__upper",
                 "__lower",
+                "__range",
+                "__push",
+                "__pop",
+                "__contains",
+                "__is_map",
+                "__is_list",
+                "__is_string",
+                "__bool",
+                "__type",
                 js
             );
         } catch (err) {
@@ -60,13 +71,64 @@ say: "Sum: " + str(sum)`;
                 return Number.isFinite(n) ? n : 0;
             },
             (v) => String(v).toUpperCase(),
-            (v) => String(v).toLowerCase()
+            (v) => String(v).toLowerCase(),
+            (start, end) => {
+                const s = Number(start);
+                const e = Number(end);
+                if (!Number.isFinite(s) || !Number.isFinite(e)) return [];
+                const out = [];
+                for (let i = s; i < e; i++) out.push(i);
+                return out;
+            },
+            (list, item) => {
+                if (!Array.isArray(list)) return 0;
+                list.push(item);
+                return list.length;
+            },
+            (list) => {
+                if (!Array.isArray(list)) return 0;
+                return list.pop();
+            },
+            (hay, needle) => {
+                if (typeof hay === "string") return hay.includes(String(needle));
+                if (Array.isArray(hay)) return hay.includes(needle);
+                if (hay && typeof hay === "object") return Object.prototype.hasOwnProperty.call(hay, String(needle));
+                return false;
+            },
+            (v) => !!(v && typeof v === "object" && !Array.isArray(v)),
+            (v) => Array.isArray(v),
+            (v) => typeof v === "string",
+            (v) => !!v,
+            (v) => {
+                if (Array.isArray(v)) return "list";
+                if (v && typeof v === "object") return "map";
+                if (typeof v === "string") return "string";
+                if (typeof v === "number") return "number";
+                if (typeof v === "boolean") return "bool";
+                return "null";
+            }
         );
         return out.length ? out.join("\n") : "Program executed successfully";
     }
 
     transpile(source) {
         const lines = source.replace(/\r\n/g, "\n").split("\n");
+        const prelude = [
+            "const len = __len;",
+            "const str = __str;",
+            "const num = __num;",
+            "const upper = __upper;",
+            "const lower = __lower;",
+            "const range = __range;",
+            "const push = __push;",
+            "const pop = __pop;",
+            "const contains = __contains;",
+            "const is_map = __is_map;",
+            "const is_list = __is_list;",
+            "const is_string = __is_string;",
+            "const bool = __bool;",
+            "const type = __type;"
+        ];
         const out = [];
         for (let raw of lines) {
             const line = raw.trim();
@@ -135,16 +197,28 @@ say: "Sum: " + str(sum)`;
             }
             out.push(this.rewriteStatement(line));
         }
-        return out.join("\n");
+        return prelude.join("\n") + "\n" + out.join("\n");
     }
 
     rewriteExpr(expr) {
-        return expr
+        const converted = this.convertColonCalls(expr);
+        return converted
             .replace(/\blen\s*\(/g, "__len(")
             .replace(/\bstr\s*\(/g, "__str(")
             .replace(/\bnum\s*\(/g, "__num(")
             .replace(/\bupper\s*\(/g, "__upper(")
             .replace(/\blower\s*\(/g, "__lower(");
+    }
+
+    convertColonCalls(expr) {
+        if (!expr || expr.includes("{")) return expr;
+        const idx = expr.indexOf(":");
+        if (idx === -1) return expr;
+        const name = expr.slice(0, idx).trim();
+        if (!/^[A-Za-z_]\w*$/.test(name)) return expr;
+        const args = expr.slice(idx + 1).trim();
+        if (!args) return `${name}()`;
+        return `${name}(${args})`;
     }
 
     rewriteStatement(line) {

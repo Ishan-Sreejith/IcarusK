@@ -37,11 +37,13 @@ pkg/
 wasm/pkg/
 .DS_Store
 .idea/
+docs/
+examples/
+.proxyai/
 
 # Documentation and markdown
 *.md
 *.txt
-!/README.md
 /docs/
 /examples/
 /deploy/
@@ -54,3 +56,9 @@ wasm/pkg/
 *.bak*
 /wasm/README.md
 /src/jit/*.bak*
+
+# Ignore scripts and CoRe sources
+*.sh
+*.fr
+wakatimeheartbeat.rs
+waka_boost.sh
