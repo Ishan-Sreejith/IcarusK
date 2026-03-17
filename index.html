@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Daedalus OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Space Grotesk", "ui-sans-serif", "system-ui"],
+              mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular"],
+            },
+            colors: {
+              daedalus: {
+                50: "#eef4ff",
+                100: "#d9e6ff",
+                200: "#b8ccff",
+                300: "#8aa9ff",
+                400: "#5b7dff",
+                500: "#2f52ff",
+                600: "#243fe6",
+                700: "#1f34b8",
+                800: "#1d2d8f",
+                900: "#1c276f",
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/js/all.min.js"
+      crossorigin="anonymous"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/framer-motion/dist/framer-motion.umd.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        font-family: "Space Grotesk", sans-serif;
+      }
+      .glass {
+        background: rgba(17, 24, 39, 0.6);
+        backdrop-filter: blur(18px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .desktop-bg {
+        background: radial-gradient(circle at 20% 20%, rgba(47, 82, 255, 0.35), transparent 40%),
+          radial-gradient(circle at 80% 10%, rgba(76, 208, 190, 0.25), transparent 45%),
+          linear-gradient(120deg, #0b1020, #0d142a 40%, #0a0f1f);
+      }
+      .xterm {
+        padding: 12px;
+      }
+      .hud-panel {
+        background: linear-gradient(120deg, rgba(15, 23, 42, 0.75), rgba(30, 41, 59, 0.35));
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        box-shadow: 0 20px 60px rgba(2, 6, 23, 0.6);
+      }
+      .bar-track {
+        background: rgba(148, 163, 184, 0.18);
+      }
+      .bar-fill {
+        background: linear-gradient(90deg, rgba(56, 189, 248, 0.85), rgba(34, 197, 94, 0.75));
+        box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
+      }
+      .globe {
+        width: 84px;
+        height: 84px;
+        border-radius: 999px;
+        background: radial-gradient(circle at 30% 30%, rgba(94, 234, 212, 0.8), rgba(14, 116, 144, 0.6) 50%, rgba(2, 6, 23, 0.9));
+        box-shadow: 0 0 22px rgba(45, 212, 191, 0.6);
+        position: relative;
+        overflow: hidden;
+      }
+      .globe::after {
+        content: "";
+        position: absolute;
+        inset: 12px;
+        border: 1px solid rgba(226, 232, 240, 0.15);
+        border-radius: 999px;
+        animation: spin 8s linear infinite;
+      }
+      .globe::before {
+        content: "";
+        position: absolute;
+        inset: -10px;
+        border-top: 2px solid rgba(56, 189, 248, 0.6);
+        border-left: 2px solid rgba(56, 189, 248, 0.2);
+        border-radius: 999px;
+        animation: spin 12s linear infinite reverse;
+      }
+      .sun-dial {
+        width: 140px;
+        height: 54px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        position: relative;
+        overflow: hidden;
+      }
+      .sun-orbit {
+        position: absolute;
+        bottom: -16px;
+        left: 50%;
+        width: 120px;
+        height: 120px;
+        transform: translateX(-50%);
+        border-radius: 50%;
+        border: 1px dashed rgba(148, 163, 184, 0.2);
+      }
+      .sun {
+        width: 14px;
+        height: 14px;
+        background: radial-gradient(circle, #fde68a, #f59e0b);
+        border-radius: 999px;
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        box-shadow: 0 0 12px rgba(251, 191, 36, 0.9);
+      }
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-950 text-slate-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useEffect, useRef, useState } = React;
+      const framer =
+        window.framerMotion ||
+        window["framer-motion"] ||
+        window.FramerMotion ||
+        null;
+      const motion = framer
+        ? framer.motion
+        : ({ children, ...props }) => <div {...props}>{children}</div>;
+      const AnimatePresence = framer
+        ? framer.AnimatePresence
+        : ({ children }) => <>{children}</>;
+
+      const PROMPT_PREFIX = "daedalus";
+      const COMMANDS = {
+        help: "help",
+        desktop: "desk",
+        repeat: "r -",
+        pwd: "here",
+        ls: "list",
+        cd: "go",
+        cat: "read",
+        touch: "new",
+        mkdir: "make",
+        rm: "del",
+        echo: "say",
+        write: "write",
+        grep: "find",
+        nc: "ping",
+        sl: "train",
+        shw: "scan",
+        rmv: "remove",
+        run: "run",
+        start: "start",
+        stop: "stop",
+        reset: "reset",
+        ports: "ports",
+        peek: "peek",
+        sync: "sync",
+      };
+      const TRAIN_ART = [
+        "      ====        ________                ___________ ",
+        "  _D _|  |_______/        \\__I_I_____===__|_________| ",
+        "   |(_)---  |   H\\________/ |   |        =|___ ___|   ",
+        "   /     |  |   H  |  |     |   |         ||_| |_||   ",
+        "  |      |  |   H  |__--------------------| [___] |   ",
+        "  | ________|___H__/__|_____/[][]~\\_______|       |   ",
+        "  |/ |   |-----------I_____I [][] []  D   |=======|__ ",
+        " __/ =| o |=-~~\\  /~~\\  /~~\\  /~~\\ ____Y___________|__ ",
+        " |/-=|___|=O=====O=====O=====O=====|_____/~\\___/       ",
+      ].join("\r\n");
+
+      const createFileSystem = () => ({
+        type: "dir",
+        children: {
+          home: {
+            type: "dir",
+            children: {
+              daedalus: {
+                type: "dir",
+                children: {
+                  "readme.txt": {
+                    type: "file",
+                  content: "Daedalus OS: simulated shell environment.\nType 'help' to explore commands.\n",
+                  },
+                  "notes.log": {
+                    type: "file",
+                    content: "loop: r - sys info\ninterrupt: ctrl+c\n",
+                  },
+                },
+              },
+            },
+          },
+          sys: { type: "dir", children: { "cpu.info": { type: "file", content: "RP2040 @133MHz\n" } } },
+          apps: { type: "dir", children: {} },
+          ports: { type: "dir", children: { "uart0.dev": { type: "file", content: "mock port\n" } } },
+        },
+      });
+
+      const normalizePath = (path) => {
+        const parts = path.split("/").filter(Boolean);
+        const stack = [];
+        parts.forEach((part) => {
+          if (part === ".") return;
+          if (part === "..") {
+            stack.pop();
+            return;
+          }
+          stack.push(part);
+        });
+        return "/" + stack.join("/");
+      };
+
+      const resolvePath = (cwd, inputPath) => {
+        if (!inputPath || inputPath === ".") return cwd;
+        if (inputPath.startsWith("/")) return normalizePath(inputPath);
+        return normalizePath(`${cwd}/${inputPath}`);
+      };
+
+      const getNode = (fsRoot, path) => {
+        const parts = path.split("/").filter(Boolean);
+        let current = fsRoot;
+        for (const part of parts) {
+          if (!current || current.type !== "dir") return null;
+          current = current.children[part];
+        }
+        return current || null;
+      };
+
+      const ensureParent = (fsRoot, path) => {
+        const parts = path.split("/").filter(Boolean);
+        const name = parts.pop();
+        let current = fsRoot;
+        for (const part of parts) {
+          if (!current.children[part]) return null;
+          current = current.children[part];
+          if (current.type !== "dir") return null;
+        }
+        return { parent: current, name };
+      };
+
+      const listDir = (node) => {
+        if (!node || node.type !== "dir") return [];
+        return Object.keys(node.children).sort();
+      };
+
+      function App() {
+        const termShellRef = useRef(null);
+        const termDesktopRef = useRef(null);
+        const termInstanceRef = useRef(null);
+        const fitAddonRef = useRef(null);
+        const inputBufferRef = useRef("");
+        const loopsRef = useRef([]);
+        const interruptTokenRef = useRef(0);
+        const fsRef = useRef(createFileSystem());
+        const cwdRef = useRef("/home/daedalus");
+        const editorRef = useRef({ active: false, path: "", lines: [], currentLine: "" });
+
+        const [desktopOpen, setDesktopOpen] = useState(false);
+        const [clock, setClock] = useState(new Date());
+        const [exitMenuOpen, setExitMenuOpen] = useState(false);
+        const [windowPos, setWindowPos] = useState({ x: 120, y: 120 });
+        const dragStateRef = useRef({ dragging: false, offsetX: 0, offsetY: 0 });
+        const timeFraction = (clock.getHours() + clock.getMinutes() / 60) / 24;
+        const sunStyle = {
+          left: `${10 + timeFraction * 80}%`,
+          bottom: `${8 + Math.sin(Math.PI * timeFraction) * 22}px`,
+        };
+
+        useEffect(() => {
+          const interval = setInterval(() => setClock(new Date()), 1000);
+          return () => clearInterval(interval);
+        }, []);
+
+        useEffect(() => {
+          if (!window.Terminal) {
+            console.error("xterm.js failed to load.");
+            return;
+          }
+          const term = new window.Terminal({
+            fontFamily: "JetBrains Mono, ui-monospace",
+            fontSize: 14,
+            cursorBlink: true,
+            theme: {
+              background: "#0b0f1f",
+              foreground: "#e2e8f0",
+              cursor: "#5b7dff",
+              selection: "rgba(91, 125, 255, 0.3)",
+            },
+          });
+          const fitAddon = new window.FitAddon.FitAddon();
+          term.loadAddon(fitAddon);
+          term.open(termShellRef.current);
+          fitAddon.fit();
+
+          term.writeln("Daedalus OS booted. Type 'help' for commands.");
+          writePrompt(term);
+
+          const handleResize = () => fitAddon.fit();
+          window.addEventListener("resize", handleResize);
+
+          term.onData((data) => handleTerminalData(data, term));
+
+          termInstanceRef.current = term;
+          fitAddonRef.current = fitAddon;
+
+          return () => {
+            window.removeEventListener("resize", handleResize);
+            term.dispose();
+          };
+        }, []);
+
+        useEffect(() => {
+          const term = termInstanceRef.current;
+          const fitAddon = fitAddonRef.current;
+          if (!term || !fitAddon) return;
+          const target = desktopOpen ? termDesktopRef.current : termShellRef.current;
+          if (target) {
+            requestAnimationFrame(() => {
+              if (termShellRef.current) termShellRef.current.innerHTML = "";
+              if (termDesktopRef.current) termDesktopRef.current.innerHTML = "";
+              term.open(target);
+              fitAddon.fit();
+            });
+          }
+        }, [desktopOpen]);
+
+        useEffect(() => {
+          const handleMouseMove = (event) => {
+            const dragState = dragStateRef.current;
+            if (!dragState.dragging) return;
+            setWindowPos({
+              x: event.clientX - dragState.offsetX,
+              y: event.clientY - dragState.offsetY,
+            });
+          };
+          const handleMouseUp = () => {
+            dragStateRef.current.dragging = false;
+          };
+          window.addEventListener("mousemove", handleMouseMove);
+          window.addEventListener("mouseup", handleMouseUp);
+          return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+          };
+        }, []);
+
+        const handleTerminalData = (data, term) => {
+          if (editorRef.current.active) {
+            handleEditorData(data, term);
+            return;
+          }
+          if (data === "\r") {
+            const input = inputBufferRef.current.trim();
+            inputBufferRef.current = "";
+            term.write("\r\n");
+            executeCommand(input, { term });
+            return;
+          }
+
+          if (data === "\u007f") {
+            if (inputBufferRef.current.length > 0) {
+              inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+              term.write("\b \b");
+            }
+            return;
+          }
+
+          if (data === "\x03") {
+            handleInterrupt(term);
+            return;
+          }
+
+          inputBufferRef.current += data;
+          term.write(data);
+        };
+
+        const handleInterrupt = (term) => {
+          interruptTokenRef.current += 1;
+          loopsRef.current.forEach((loop) => loop.cancel());
+          loopsRef.current = [];
+          if (desktopOpen) {
+            setDesktopOpen(false);
+          }
+          term.write("^C\r\n");
+          writePrompt(term);
+        };
+
+        const printLine = (term, message) => {
+          term.writeln(message);
+        };
+
+        const getPrompt = () => {
+          const homeRoot = "/home/daedalus";
+          const suffix = cwdRef.current.startsWith(homeRoot)
+            ? cwdRef.current.slice(homeRoot.length)
+            : cwdRef.current;
+          return `${PROMPT_PREFIX}${suffix || ""}:: `;
+        };
+
+        const writePrompt = (term) => {
+          term.write(getPrompt());
+        };
+
+        const executeCommand = (input, { term, fromLoop = false } = {}) => {
+          if (!input) {
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input === COMMANDS.help) {
+            printLine(
+              term,
+              [
+                "help: show command list",
+                "desk: open desktop view",
+                "r - [cmd]: repeat a command until Ctrl+C",
+                "sys cpu|memory|info: system stats",
+                "here: print current path",
+                "list [path]: list directory",
+                "go [path]: change directory",
+                "read <file>: print file",
+                "new <file>: create empty file",
+                "make <dir>: create directory",
+                "del [-r] <path>: delete file or directory",
+                "say <text> [> file|>> file]: print or write",
+                "mod <file>: open editor (Ctrl+X save, Ctrl+C cancel)",
+                "emod <file> <text>: overwrite file",
+                "write <file> <text>: overwrite file",
+                "find <pattern> <file>: search file",
+                "ping <host> <port>: mock connect",
+                "train: show train",
+                "scan/remove/run/start/stop/reset/ports/peek/sync: mock commands",
+              ].join("\\r\\n")
+            );
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(COMMANDS.repeat)) {
+            const loopCommand = input.replace(/^r -\s*/, "").trim();
+            if (!loopCommand) {
+              printLine(term, "Usage: r - [command]");
+              if (!fromLoop) writePrompt(term);
+              return;
+            }
+            const loop = startRepeatLoop(loopCommand, term);
+            loopsRef.current.push(loop);
+            printLine(term, `Repeating: ${loopCommand}`);
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input === COMMANDS.desktop || input === "desktop") {
+            setDesktopOpen(true);
+            printLine(term, "Switching to desktop mode...");
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input === COMMANDS.pwd) {
+            printLine(term, cwdRef.current);
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(COMMANDS.ls)) {
+            const [, pathArg] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg || ".");
+            const node = getNode(fsRef.current, targetPath);
+            if (!node) {
+              printLine(term, `list: cannot access '${pathArg || "."}': No such file or directory`);
+            } else if (node.type === "file") {
+              printLine(term, targetPath.split("/").pop());
+            } else {
+              const listing = listDir(node);
+              printLine(term, listing.join("  "));
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(COMMANDS.cd)) {
+            const [, pathArg] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg || "/home/daedalus");
+            const node = getNode(fsRef.current, targetPath);
+            if (!node || node.type !== "dir") {
+              printLine(term, `go: ${pathArg || ""}: No such directory`);
+            } else {
+              cwdRef.current = targetPath;
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.cat} `)) {
+            const [, pathArg] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const node = getNode(fsRef.current, targetPath);
+            if (!node || node.type !== "file") {
+              printLine(term, `read: ${pathArg}: No such file`);
+            } else {
+              node.content.split("\n").forEach((line) => term.writeln(line));
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.touch} `)) {
+            const [, pathArg] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const entry = ensureParent(fsRef.current, targetPath);
+            if (!entry) {
+              printLine(term, `new: cannot create '${pathArg}': No such directory`);
+            } else {
+              entry.parent.children[entry.name] = { type: "file", content: "" };
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.mkdir} `)) {
+            const [, pathArg] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const entry = ensureParent(fsRef.current, targetPath);
+            if (!entry) {
+              printLine(term, `make: cannot create '${pathArg}': No such directory`);
+            } else {
+              entry.parent.children[entry.name] = { type: "dir", children: {} };
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.rm} `)) {
+            const args = input.split(" ").slice(1);
+            const recursive = args[0] === "-r" || args[0] === "-rf";
+            const pathArg = recursive ? args[1] : args[0];
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const entry = ensureParent(fsRef.current, targetPath);
+            if (!entry || !entry.parent.children[entry.name]) {
+              printLine(term, `del: cannot remove '${pathArg}': No such file or directory`);
+            } else {
+              const node = entry.parent.children[entry.name];
+              if (node.type === "dir" && !recursive && Object.keys(node.children).length > 0) {
+                printLine(term, `del: cannot remove '${pathArg}': Directory not empty`);
+              } else {
+                delete entry.parent.children[entry.name];
+              }
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.echo} `)) {
+            const rest = input.slice(COMMANDS.echo.length + 1);
+            const redirectMatch = rest.match(/(.*)\\s+(>>?)\\s+(.+)/);
+            if (redirectMatch) {
+              const message = redirectMatch[1];
+              const op = redirectMatch[2];
+              const filePath = resolvePath(cwdRef.current, redirectMatch[3]);
+              const entry = ensureParent(fsRef.current, filePath);
+              if (!entry) {
+                printLine(term, `say: ${redirectMatch[3]}: No such file or directory`);
+              } else {
+                const existing = entry.parent.children[entry.name];
+                if (!existing || existing.type !== "file") {
+                  entry.parent.children[entry.name] = { type: "file", content: "" };
+                }
+                if (op === ">") {
+                  entry.parent.children[entry.name].content = message + "\n";
+                } else {
+                  entry.parent.children[entry.name].content += message + "\n";
+                }
+              }
+            } else {
+              printLine(term, rest);
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith("emod ")) {
+            const [, pathArg, ...textParts] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const entry = ensureParent(fsRef.current, targetPath);
+            if (!entry) {
+              printLine(term, `emod: ${pathArg}: No such directory`);
+            } else {
+              entry.parent.children[entry.name] = { type: "file", content: textParts.join(" ") + "\n" };
+              printLine(term, `emod: wrote ${pathArg}`);
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith("mod ")) {
+            const [, pathArg] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const entry = ensureParent(fsRef.current, targetPath);
+            if (!entry) {
+              printLine(term, `mod: ${pathArg}: No such directory`);
+              if (!fromLoop) writePrompt(term);
+              return;
+            }
+            if (!entry.parent.children[entry.name] || entry.parent.children[entry.name].type !== "file") {
+              entry.parent.children[entry.name] = { type: "file", content: "" };
+            }
+            const existingContent = entry.parent.children[entry.name].content || "";
+            editorRef.current = {
+              active: true,
+              path: targetPath,
+              lines: existingContent.split("\n").filter((line, idx, arr) => !(idx === arr.length - 1 && line === "")),
+              currentLine: "",
+            };
+            term.writeln("GNU nano 7.0  Daedalus Editor");
+            term.writeln("^X Save  ^C Cancel");
+            editorRef.current.lines.forEach((line) => term.writeln(line));
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.write} `)) {
+            const [, pathArg, ...textParts] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const entry = ensureParent(fsRef.current, targetPath);
+            if (!entry) {
+              printLine(term, `write: ${pathArg}: No such directory`);
+            } else {
+              entry.parent.children[entry.name] = { type: "file", content: textParts.join(" ") + "\n" };
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.grep} `)) {
+            const [, pattern, pathArg] = input.split(" ");
+            const targetPath = resolvePath(cwdRef.current, pathArg);
+            const node = getNode(fsRef.current, targetPath);
+            if (!node || node.type !== "file") {
+              printLine(term, `find: ${pathArg}: No such file`);
+            } else {
+              node.content
+                .split("\n")
+                .filter((line) => line.includes(pattern))
+                .forEach((line) => term.writeln(line));
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith(`${COMMANDS.nc} `)) {
+            const [, host, port] = input.split(" ");
+            printLine(term, `ping: probing ${host}:${port} ... open (simulated)`);
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input === COMMANDS.sl) {
+            printLine(term, TRAIN_ART);
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          if (input.startsWith("sys ")) {
+            const sub = input.split(" ")[1];
+            if (sub === "cpu") {
+              printLine(term, "RP2040 CPU: Dual-core ARM Cortex-M0+, 133MHz");
+            } else if (sub === "memory") {
+              printLine(term, "RP2040 Memory: 264KB SRAM");
+            } else if (sub === "info") {
+              printLine(term, "RP2040 Info: 133MHz CPU, 264KB RAM, 2MB flash (mock)");
+            } else {
+              printLine(term, "sys [cpu|memory|info]");
+            }
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          const mockCommands = [
+            COMMANDS.shw,
+            COMMANDS.rmv,
+            COMMANDS.run,
+            COMMANDS.start,
+            COMMANDS.stop,
+            COMMANDS.reset,
+            COMMANDS.ports,
+            COMMANDS.peek,
+            COMMANDS.sync,
+          ];
+          if (mockCommands.includes(input)) {
+            printLine(term, `Mock response for ${input}.`);
+            if (!fromLoop) writePrompt(term);
+            return;
+          }
+
+          printLine(term, `Unknown command: ${input}`);
+          if (!fromLoop) writePrompt(term);
+        };
+
+        const handleEditorData = (data, term) => {
+          const editor = editorRef.current;
+          if (data === "\r") {
+            editor.lines.push(editor.currentLine);
+            editor.currentLine = "";
+            term.write("\r\n");
+            return;
+          }
+          if (data === "\u007f") {
+            if (editor.currentLine.length > 0) {
+              editor.currentLine = editor.currentLine.slice(0, -1);
+              term.write("\b \b");
+            }
+            return;
+          }
+          if (data === "\x18") {
+            const entry = ensureParent(fsRef.current, editor.path);
+            if (entry) {
+              entry.parent.children[entry.name] = { type: "file", content: editor.lines.join("\n") + "\n" };
+            }
+            editorRef.current = { active: false, path: "", lines: [], currentLine: "" };
+            term.writeln("\r\n[mod] saved.");
+            writePrompt(term);
+            return;
+          }
+          if (data === "\x03") {
+            editorRef.current = { active: false, path: "", lines: [], currentLine: "" };
+            term.writeln("\r\n[mod] cancelled.");
+            writePrompt(term);
+            return;
+          }
+          editor.currentLine += data;
+          term.write(data);
+        };
+
+        const startRepeatLoop = (loopCommand, term) => {
+          let cancelled = false;
+          const tokenAtStart = interruptTokenRef.current;
+
+          const loop = () => {
+            if (cancelled || tokenAtStart !== interruptTokenRef.current) return;
+            executeCommand(loopCommand, { term, fromLoop: true });
+            setTimeout(loop, 0);
+          };
+
+          setTimeout(loop, 0);
+
+          return {
+            cancel: () => {
+              cancelled = true;
+            },
+          };
+        };
+
+        const handleExitToShell = () => {
+          interruptTokenRef.current += 1;
+          loopsRef.current.forEach((loop) => loop.cancel());
+          loopsRef.current = [];
+          setDesktopOpen(false);
+          setExitMenuOpen(false);
+          const term = termInstanceRef.current;
+          if (term) {
+            term.writeln("Exited desktop mode.");
+            writePrompt(term);
+          }
+        };
+
+        const startDrag = (event) => {
+          dragStateRef.current.dragging = true;
+          dragStateRef.current.offsetX = event.clientX - windowPos.x;
+          dragStateRef.current.offsetY = event.clientY - windowPos.y;
+        };
+
+        return (
+          <div className="relative min-h-screen overflow-hidden">
+            <div
+              className={`absolute inset-0 transition-opacity duration-500 ${desktopOpen ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"></div>
+              <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_20%_20%,rgba(91,125,255,0.35),transparent_45%),radial-gradient(circle_at_80%_30%,rgba(56,189,248,0.2),transparent_50%)]"></div>
+              <div className="relative z-10 flex h-screen items-center justify-center p-8">
+                <div className="glass w-full max-w-6xl rounded-2xl shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-3 w-3 rounded-full bg-red-400"></div>
+                      <div className="h-3 w-3 rounded-full bg-amber-400"></div>
+                      <div className="h-3 w-3 rounded-full bg-emerald-400"></div>
+                    </div>
+                    <span className="text-sm uppercase tracking-[0.2em] text-slate-300">Daedalus Shell</span>
+                    <span className="text-xs text-slate-400">Ctrl+C to interrupt</span>
+                  </div>
+                  <div className="hud-panel flex flex-wrap items-center justify-between gap-6 px-6 py-4 text-xs text-slate-200">
+                    <div className="flex flex-col gap-2">
+                      <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Core Telemetry</div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-slate-300">CPU</span>
+                        <span className="text-slate-100">RP2040 · 133MHz</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="w-14 text-slate-300">RAM</span>
+                        <div className="bar-track h-2 w-40 rounded-full">
+                          <div className="bar-fill h-2 w-[68%] rounded-full"></div>
+                        </div>
+                        <span className="text-slate-300">179KB</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="w-14 text-slate-300">NET</span>
+                        <div className="bar-track h-2 w-40 rounded-full">
+                          <div className="bar-fill h-2 w-[42%] rounded-full"></div>
+                        </div>
+                        <span className="text-slate-300">link</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Orbital</div>
+                        <div className="globe"></div>
+                      </div>
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Solar Clock</div>
+                        <div className="sun-dial">
+                          <div className="sun-orbit"></div>
+                          <div className="sun" style={sunStyle}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div ref={termShellRef} className="h-[70vh] w-full font-mono"></div>
+                </div>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {desktopOpen && (
+                <motion.div
+                  className="absolute inset-0 desktop-bg"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.45 }}
+                >
+                  <div className="relative z-10 flex h-full flex-col">
+                    <div className="glass flex items-center justify-between px-6 py-3 text-sm text-slate-100">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-daedalus-500/80 text-white shadow-lg">
+                          <i className="fa-solid fa-feather"></i>
+                        </div>
+                        <span className="font-semibold tracking-wide">Daedalus</span>
+                      </div>
+                      <div className="sun-dial scale-75">
+                        <div className="sun-orbit"></div>
+                        <div className="sun" style={sunStyle}></div>
+                      </div>
+                      <div className="relative">
+                        <button
+                          className="rounded-full border border-white/10 bg-white/10 px-4 py-1 text-xs uppercase tracking-widest text-slate-100 hover:bg-white/20"
+                          onClick={() => setExitMenuOpen((open) => !open)}
+                        >
+                          Exit
+                        </button>
+                        {exitMenuOpen && (
+                          <div className="absolute right-0 mt-2 w-40 rounded-xl border border-white/10 bg-slate-900/80 p-2 text-xs shadow-xl">
+                            <button
+                              className="w-full rounded-lg px-3 py-2 text-left text-slate-100 hover:bg-white/10"
+                              onClick={handleExitToShell}
+                            >
+                              Exit to Shell
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-1 gap-10 p-10">
+                      <div className="flex flex-col gap-6">
+                        {[
+                          { label: "sys", icon: "fa-server" },
+                          { label: "apps", icon: "fa-layer-group" },
+                          { label: "ports", icon: "fa-diagram-project" },
+                        ].map((item) => (
+                          <div key={item.label} className="flex flex-col items-center gap-2 text-slate-200">
+                            <div className="glass flex h-16 w-16 items-center justify-center rounded-2xl shadow-lg">
+                              <i className={`fa-solid ${item.icon} text-xl text-daedalus-200`}></i>
+                            </div>
+                            <span className="text-xs uppercase tracking-widest text-slate-300">{item.label}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="relative flex-1">
+                        <motion.div
+                          className="glass absolute left-0 top-0 w-full max-w-3xl rounded-2xl shadow-2xl"
+                          style={{ transform: `translate(${windowPos.x}px, ${windowPos.y}px)` }}
+                          initial={{ y: 40, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{ duration: 0.4 }}
+                        >
+                          <div
+                            className="flex cursor-move items-center justify-between border-b border-white/10 px-4 py-3"
+                            onMouseDown={startDrag}
+                          >
+                            <span className="text-xs uppercase tracking-[0.2em] text-slate-300">Terminal</span>
+                            <span className="text-xs text-slate-400">Drag me</span>
+                          </div>
+                          <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                            <div className="flex items-center gap-3">
+                              <span>Flux</span>
+                              <div className="bar-track h-1.5 w-28 rounded-full">
+                                <div className="bar-fill h-1.5 w-[58%] rounded-full"></div>
+                              </div>
+                            </div>
+                            <div className="globe scale-50"></div>
+                            <span className="text-slate-500">Stability 0.98</span>
+                          </div>
+                          <div ref={termDesktopRef} className="h-[50vh] w-full font-mono"></div>
+                        </motion.div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+
+  </body>
+</html>
