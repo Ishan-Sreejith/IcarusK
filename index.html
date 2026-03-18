@@ -71,6 +71,37 @@
       .xterm {
         padding: 12px;
       }
+      .edex-bg {
+        background: radial-gradient(circle at 20% 20%, rgba(15, 23, 42, 0.8), transparent 45%),
+          radial-gradient(circle at 80% 10%, rgba(12, 74, 110, 0.65), transparent 40%),
+          linear-gradient(130deg, #02040a, #070b12 45%, #02040a);
+      }
+      .panel {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(2, 6, 23, 0.72);
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.8);
+      }
+      .panel-title {
+        letter-spacing: 0.3em;
+        font-size: 10px;
+        color: rgba(148, 163, 184, 0.7);
+      }
+      .neon-text {
+        text-shadow: 0 0 8px rgba(94, 234, 212, 0.4);
+      }
+      .grid-dots {
+        background-image: radial-gradient(rgba(148, 163, 184, 0.15) 1px, transparent 1px);
+        background-size: 14px 14px;
+      }
+      .edex-header {
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        background: linear-gradient(90deg, rgba(15, 23, 42, 0.8), rgba(2, 6, 23, 0.5));
+      }
+      .terminal-shell {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(2, 6, 23, 0.85);
+        box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.9), 0 12px 40px rgba(2, 6, 23, 0.7);
+      }
       .hud-panel {
         background: linear-gradient(120deg, rgba(15, 23, 42, 0.75), rgba(30, 41, 59, 0.35));
         border: 1px solid rgba(148, 163, 184, 0.2);
@@ -301,6 +332,12 @@
           left: `${10 + timeFraction * 80}%`,
           bottom: `${8 + Math.sin(Math.PI * timeFraction) * 22}px`,
         };
+        const clockTime = clock.toLocaleTimeString("en-GB");
+        const clockDate = clock.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
 
         useEffect(() => {
           const interval = setInterval(() => setClock(new Date()), 1000);
@@ -314,13 +351,14 @@
           }
           const term = new window.Terminal({
             fontFamily: "JetBrains Mono, ui-monospace",
-            fontSize: 14,
+            fontSize: 13,
+            letterSpacing: 1,
             cursorBlink: true,
             theme: {
-              background: "#0b0f1f",
-              foreground: "#e2e8f0",
-              cursor: "#5b7dff",
-              selection: "rgba(91, 125, 255, 0.3)",
+              background: "#000000",
+              foreground: "#d1d5db",
+              cursor: "#7ce7d6",
+              selection: "rgba(124, 231, 214, 0.25)",
             },
           });
           const fitAddon = new window.FitAddon.FitAddon();
@@ -389,7 +427,7 @@
             const input = inputBufferRef.current.trim();
             inputBufferRef.current = "";
             term.write("\r\n");
-            executeCommand(input, { term });
+            runLine(input, { term });
             return;
           }
 
@@ -438,10 +476,11 @@
         };
 
         const executeCommand = (input, { term, fromLoop = false } = {}) => {
-          if (!input) {
+          const done = (success) => {
             if (!fromLoop) writePrompt(term);
-            return;
-          }
+            return success;
+          };
+          if (!input) return done(true);
 
           if (input === COMMANDS.help) {
             printLine(
@@ -465,38 +504,36 @@
                 "find <pattern> <file>: search file",
                 "ping <host> <port>: mock connect",
                 "train: show train",
+                "&& and ||: chain commands",
+                "!cmd: negate result",
+                "if <cmd> then <cmd> else <cmd>: conditional",
                 "scan/remove/run/start/stop/reset/ports/peek/sync: mock commands",
               ].join("\\r\\n")
             );
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input.startsWith(COMMANDS.repeat)) {
             const loopCommand = input.replace(/^r -\s*/, "").trim();
             if (!loopCommand) {
               printLine(term, "Usage: r - [command]");
-              if (!fromLoop) writePrompt(term);
-              return;
+              return done(false);
             }
             const loop = startRepeatLoop(loopCommand, term);
             loopsRef.current.push(loop);
             printLine(term, `Repeating: ${loopCommand}`);
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input === COMMANDS.desktop || input === "desktop") {
             setDesktopOpen(true);
             printLine(term, "Switching to desktop mode...");
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input === COMMANDS.pwd) {
             printLine(term, cwdRef.current);
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input.startsWith(COMMANDS.ls)) {
@@ -505,14 +542,15 @@
             const node = getNode(fsRef.current, targetPath);
             if (!node) {
               printLine(term, `list: cannot access '${pathArg || "."}': No such file or directory`);
-            } else if (node.type === "file") {
+              return done(false);
+            }
+            if (node.type === "file") {
               printLine(term, targetPath.split("/").pop());
             } else {
               const listing = listDir(node);
               printLine(term, listing.join("  "));
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input.startsWith(COMMANDS.cd)) {
@@ -521,11 +559,10 @@
             const node = getNode(fsRef.current, targetPath);
             if (!node || node.type !== "dir") {
               printLine(term, `go: ${pathArg || ""}: No such directory`);
-            } else {
-              cwdRef.current = targetPath;
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            cwdRef.current = targetPath;
+            return done(true);
           }
 
           if (input.startsWith(`${COMMANDS.cat} `)) {
@@ -534,11 +571,10 @@
             const node = getNode(fsRef.current, targetPath);
             if (!node || node.type !== "file") {
               printLine(term, `read: ${pathArg}: No such file`);
-            } else {
-              node.content.split("\n").forEach((line) => term.writeln(line));
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            node.content.split("\n").forEach((line) => term.writeln(line));
+            return done(true);
           }
 
           if (input.startsWith(`${COMMANDS.touch} `)) {
@@ -547,11 +583,10 @@
             const entry = ensureParent(fsRef.current, targetPath);
             if (!entry) {
               printLine(term, `new: cannot create '${pathArg}': No such directory`);
-            } else {
-              entry.parent.children[entry.name] = { type: "file", content: "" };
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            entry.parent.children[entry.name] = { type: "file", content: "" };
+            return done(true);
           }
 
           if (input.startsWith(`${COMMANDS.mkdir} `)) {
@@ -560,11 +595,10 @@
             const entry = ensureParent(fsRef.current, targetPath);
             if (!entry) {
               printLine(term, `make: cannot create '${pathArg}': No such directory`);
-            } else {
-              entry.parent.children[entry.name] = { type: "dir", children: {} };
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            entry.parent.children[entry.name] = { type: "dir", children: {} };
+            return done(true);
           }
 
           if (input.startsWith(`${COMMANDS.rm} `)) {
@@ -575,16 +609,15 @@
             const entry = ensureParent(fsRef.current, targetPath);
             if (!entry || !entry.parent.children[entry.name]) {
               printLine(term, `del: cannot remove '${pathArg}': No such file or directory`);
-            } else {
-              const node = entry.parent.children[entry.name];
-              if (node.type === "dir" && !recursive && Object.keys(node.children).length > 0) {
-                printLine(term, `del: cannot remove '${pathArg}': Directory not empty`);
-              } else {
-                delete entry.parent.children[entry.name];
-              }
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            const node = entry.parent.children[entry.name];
+            if (node.type === "dir" && !recursive && Object.keys(node.children).length > 0) {
+              printLine(term, `del: cannot remove '${pathArg}': Directory not empty`);
+              return done(false);
+            }
+            delete entry.parent.children[entry.name];
+            return done(true);
           }
 
           if (input.startsWith(`${COMMANDS.echo} `)) {
@@ -597,22 +630,21 @@
               const entry = ensureParent(fsRef.current, filePath);
               if (!entry) {
                 printLine(term, `say: ${redirectMatch[3]}: No such file or directory`);
+                return done(false);
+              }
+              const existing = entry.parent.children[entry.name];
+              if (!existing || existing.type !== "file") {
+                entry.parent.children[entry.name] = { type: "file", content: "" };
+              }
+              if (op === ">") {
+                entry.parent.children[entry.name].content = message + "\n";
               } else {
-                const existing = entry.parent.children[entry.name];
-                if (!existing || existing.type !== "file") {
-                  entry.parent.children[entry.name] = { type: "file", content: "" };
-                }
-                if (op === ">") {
-                  entry.parent.children[entry.name].content = message + "\n";
-                } else {
-                  entry.parent.children[entry.name].content += message + "\n";
-                }
+                entry.parent.children[entry.name].content += message + "\n";
               }
             } else {
               printLine(term, rest);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input.startsWith("emod ")) {
@@ -621,12 +653,11 @@
             const entry = ensureParent(fsRef.current, targetPath);
             if (!entry) {
               printLine(term, `emod: ${pathArg}: No such directory`);
-            } else {
-              entry.parent.children[entry.name] = { type: "file", content: textParts.join(" ") + "\n" };
-              printLine(term, `emod: wrote ${pathArg}`);
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            entry.parent.children[entry.name] = { type: "file", content: textParts.join(" ") + "\n" };
+            printLine(term, `emod: wrote ${pathArg}`);
+            return done(true);
           }
 
           if (input.startsWith("mod ")) {
@@ -635,8 +666,7 @@
             const entry = ensureParent(fsRef.current, targetPath);
             if (!entry) {
               printLine(term, `mod: ${pathArg}: No such directory`);
-              if (!fromLoop) writePrompt(term);
-              return;
+              return done(false);
             }
             if (!entry.parent.children[entry.name] || entry.parent.children[entry.name].type !== "file") {
               entry.parent.children[entry.name] = { type: "file", content: "" };
@@ -651,7 +681,7 @@
             term.writeln("GNU nano 7.0  Daedalus Editor");
             term.writeln("^X Save  ^C Cancel");
             editorRef.current.lines.forEach((line) => term.writeln(line));
-            return;
+            return true;
           }
 
           if (input.startsWith(`${COMMANDS.write} `)) {
@@ -660,11 +690,10 @@
             const entry = ensureParent(fsRef.current, targetPath);
             if (!entry) {
               printLine(term, `write: ${pathArg}: No such directory`);
-            } else {
-              entry.parent.children[entry.name] = { type: "file", content: textParts.join(" ") + "\n" };
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            entry.parent.children[entry.name] = { type: "file", content: textParts.join(" ") + "\n" };
+            return done(true);
           }
 
           if (input.startsWith(`${COMMANDS.grep} `)) {
@@ -673,27 +702,24 @@
             const node = getNode(fsRef.current, targetPath);
             if (!node || node.type !== "file") {
               printLine(term, `find: ${pathArg}: No such file`);
-            } else {
-              node.content
-                .split("\n")
-                .filter((line) => line.includes(pattern))
-                .forEach((line) => term.writeln(line));
+              return done(false);
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            node.content
+              .split("\n")
+              .filter((line) => line.includes(pattern))
+              .forEach((line) => term.writeln(line));
+            return done(true);
           }
 
           if (input.startsWith(`${COMMANDS.nc} `)) {
             const [, host, port] = input.split(" ");
             printLine(term, `ping: probing ${host}:${port} ... open (simulated)`);
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input === COMMANDS.sl) {
             printLine(term, TRAIN_ART);
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           if (input.startsWith("sys ")) {
@@ -707,8 +733,7 @@
             } else {
               printLine(term, "sys [cpu|memory|info]");
             }
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           const mockCommands = [
@@ -724,12 +749,60 @@
           ];
           if (mockCommands.includes(input)) {
             printLine(term, `Mock response for ${input}.`);
-            if (!fromLoop) writePrompt(term);
-            return;
+            return done(true);
           }
 
           printLine(term, `Unknown command: ${input}`);
+          return done(false);
+        };
+
+        const runLine = (line, { term, fromLoop = false } = {}) => {
+          const trimmed = line.trim();
+          if (!trimmed) return true;
+
+          if (trimmed.startsWith("if ")) {
+            const match = trimmed.match(/^if\s+(.+?)\s+then\s+(.+?)(?:\s+else\s+(.+))?$/);
+            if (!match) {
+              printLine(term, "if syntax: if <cmd> then <cmd> else <cmd>");
+              if (!fromLoop) writePrompt(term);
+              return false;
+            }
+            const [, condCmd, thenCmd, elseCmd] = match;
+            const condOk = runLine(condCmd, { term, fromLoop: true });
+            return condOk
+              ? runLine(thenCmd, { term, fromLoop: true })
+              : elseCmd
+                ? runLine(elseCmd, { term, fromLoop: true })
+                : true;
+          }
+
+          const tokens = trimmed.split(/\s*(\&\&|\|\|)\s*/);
+          let result = null;
+          let op = null;
+          for (const token of tokens) {
+            if (token === "&&" || token === "||") {
+              op = token;
+              continue;
+            }
+            let cmd = token.trim();
+            if (!cmd) continue;
+            let negate = false;
+            if (cmd.startsWith("!")) {
+              negate = true;
+              cmd = cmd.slice(1).trim();
+            }
+            if (result === null) {
+              result = executeCommand(cmd, { term, fromLoop: true });
+            } else if (op === "&&") {
+              if (result) result = executeCommand(cmd, { term, fromLoop: true });
+            } else if (op === "||") {
+              if (!result) result = executeCommand(cmd, { term, fromLoop: true });
+            }
+            if (negate) result = !result;
+            op = null;
+          }
           if (!fromLoop) writePrompt(term);
+          return result ?? true;
         };
 
         const handleEditorData = (data, term) => {
@@ -773,7 +846,7 @@
 
           const loop = () => {
             if (cancelled || tokenAtStart !== interruptTokenRef.current) return;
-            executeCommand(loopCommand, { term, fromLoop: true });
+            runLine(loopCommand, { term, fromLoop: true });
             setTimeout(loop, 0);
           };
 
@@ -810,56 +883,17 @@
             <div
               className={`absolute inset-0 transition-opacity duration-500 ${desktopOpen ? "opacity-0 pointer-events-none" : "opacity-100"}`}
             >
-              <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"></div>
-              <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_20%_20%,rgba(91,125,255,0.35),transparent_45%),radial-gradient(circle_at_80%_30%,rgba(56,189,248,0.2),transparent_50%)]"></div>
-              <div className="relative z-10 flex h-screen items-center justify-center p-8">
-                <div className="glass w-full max-w-6xl rounded-2xl shadow-2xl">
-                  <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-3 w-3 rounded-full bg-red-400"></div>
-                      <div className="h-3 w-3 rounded-full bg-amber-400"></div>
-                      <div className="h-3 w-3 rounded-full bg-emerald-400"></div>
+              <div className="absolute inset-0 bg-black"></div>
+              <div className="relative z-10 flex h-screen items-center justify-center p-6">
+                <div className="terminal-shell w-full max-w-6xl rounded-xl">
+                  <div className="edex-header flex items-center justify-between px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-slate-400">
+                    <div className="flex items-center gap-4">
+                      <span className="text-slate-200">Daedalus Shell</span>
+                      <span>Main</span>
                     </div>
-                    <span className="text-sm uppercase tracking-[0.2em] text-slate-300">Daedalus Shell</span>
-                    <span className="text-xs text-slate-400">Ctrl+C to interrupt</span>
+                    <div className="text-slate-500">Ctrl+C</div>
                   </div>
-                  <div className="hud-panel flex flex-wrap items-center justify-between gap-6 px-6 py-4 text-xs text-slate-200">
-                    <div className="flex flex-col gap-2">
-                      <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Core Telemetry</div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-300">CPU</span>
-                        <span className="text-slate-100">RP2040 · 133MHz</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="w-14 text-slate-300">RAM</span>
-                        <div className="bar-track h-2 w-40 rounded-full">
-                          <div className="bar-fill h-2 w-[68%] rounded-full"></div>
-                        </div>
-                        <span className="text-slate-300">179KB</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="w-14 text-slate-300">NET</span>
-                        <div className="bar-track h-2 w-40 rounded-full">
-                          <div className="bar-fill h-2 w-[42%] rounded-full"></div>
-                        </div>
-                        <span className="text-slate-300">link</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-6">
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Orbital</div>
-                        <div className="globe"></div>
-                      </div>
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Solar Clock</div>
-                        <div className="sun-dial">
-                          <div className="sun-orbit"></div>
-                          <div className="sun" style={sunStyle}></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div ref={termShellRef} className="h-[70vh] w-full font-mono"></div>
+                  <div ref={termShellRef} className="h-[72vh] w-full font-mono"></div>
                 </div>
               </div>
             </div>
@@ -867,87 +901,105 @@
             <AnimatePresence>
               {desktopOpen && (
                 <motion.div
-                  className="absolute inset-0 desktop-bg"
+                  className="absolute inset-0 edex-bg grid-dots"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.45 }}
                 >
-                  <div className="relative z-10 flex h-full flex-col">
-                    <div className="glass flex items-center justify-between px-6 py-3 text-sm text-slate-100">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-daedalus-500/80 text-white shadow-lg">
-                          <i className="fa-solid fa-feather"></i>
+                  <div className="relative z-10 h-full w-full p-5">
+                    <div className="panel h-full rounded-2xl p-4">
+                      <div className="grid h-full grid-cols-[240px_1fr_260px] grid-rows-[1fr_240px] gap-4">
+                        <div className="panel flex h-full flex-col gap-4 rounded-xl p-4">
+                          <div className="panel-title">PANEL</div>
+                          <div className="text-3xl font-semibold text-slate-100 neon-text">{clockTime}</div>
+                          <div className="text-xs uppercase tracking-[0.3em] text-slate-400">{clockDate}</div>
+                          <div className="mt-2 flex flex-col gap-3 text-xs text-slate-300">
+                            <div className="flex items-center justify-between">
+                              <span>UPTIME</span>
+                              <span>1:09:51</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>TYPE</span>
+                              <span>RP2040</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>POWER</span>
+                              <span>CHARGED</span>
+                            </div>
+                          </div>
+                          <div className="panel-title mt-4">CPU USAGE</div>
+                          <div className="bar-track h-2 w-full rounded-full">
+                            <div className="bar-fill h-2 w-[54%] rounded-full"></div>
+                          </div>
+                          <div className="panel-title mt-4">MEMORY</div>
+                          <div className="bar-track h-2 w-full rounded-full">
+                            <div className="bar-fill h-2 w-[68%] rounded-full"></div>
+                          </div>
+                          <div className="panel-title mt-4">PROCESSES</div>
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                            daemon · shell · ui · net
+                          </div>
                         </div>
-                        <span className="font-semibold tracking-wide">Daedalus</span>
-                      </div>
-                      <div className="sun-dial scale-75">
-                        <div className="sun-orbit"></div>
-                        <div className="sun" style={sunStyle}></div>
-                      </div>
-                      <div className="relative">
-                        <button
-                          className="rounded-full border border-white/10 bg-white/10 px-4 py-1 text-xs uppercase tracking-widest text-slate-100 hover:bg-white/20"
-                          onClick={() => setExitMenuOpen((open) => !open)}
-                        >
-                          Exit
-                        </button>
-                        {exitMenuOpen && (
-                          <div className="absolute right-0 mt-2 w-40 rounded-xl border border-white/10 bg-slate-900/80 p-2 text-xs shadow-xl">
-                            <button
-                              className="w-full rounded-lg px-3 py-2 text-left text-slate-100 hover:bg-white/10"
-                              onClick={handleExitToShell}
-                            >
-                              Exit to Shell
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
 
-                    <div className="flex flex-1 gap-10 p-10">
-                      <div className="flex flex-col gap-6">
-                        {[
-                          { label: "sys", icon: "fa-server" },
-                          { label: "apps", icon: "fa-layer-group" },
-                          { label: "ports", icon: "fa-diagram-project" },
-                        ].map((item) => (
-                          <div key={item.label} className="flex flex-col items-center gap-2 text-slate-200">
-                            <div className="glass flex h-16 w-16 items-center justify-center rounded-2xl shadow-lg">
-                              <i className={`fa-solid ${item.icon} text-xl text-daedalus-200`}></i>
+                        <div className="terminal-shell flex h-full flex-col rounded-xl">
+                          <div className="edex-header flex items-center justify-between px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-slate-400">
+                            <div className="flex items-center gap-4">
+                              <span className="text-slate-200">Main Shell</span>
+                              <span>Empty</span>
+                              <span>Empty</span>
                             </div>
-                            <span className="text-xs uppercase tracking-widest text-slate-300">{item.label}</span>
+                            <div className="flex items-center gap-4 text-slate-500">
+                              <span>System Terminal</span>
+                              <button
+                                className="rounded border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-slate-300 hover:text-slate-100"
+                                onClick={handleExitToShell}
+                              >
+                                Exit
+                              </button>
+                            </div>
                           </div>
-                        ))}
-                      </div>
+                          <div ref={termDesktopRef} className="h-full w-full font-mono"></div>
+                        </div>
 
-                      <div className="relative flex-1">
-                        <motion.div
-                          className="glass absolute left-0 top-0 w-full max-w-3xl rounded-2xl shadow-2xl"
-                          style={{ transform: `translate(${windowPos.x}px, ${windowPos.y}px)` }}
-                          initial={{ y: 40, opacity: 0 }}
-                          animate={{ y: 0, opacity: 1 }}
-                          transition={{ duration: 0.4 }}
-                        >
-                          <div
-                            className="flex cursor-move items-center justify-between border-b border-white/10 px-4 py-3"
-                            onMouseDown={startDrag}
-                          >
-                            <span className="text-xs uppercase tracking-[0.2em] text-slate-300">Terminal</span>
-                            <span className="text-xs text-slate-400">Drag me</span>
+                        <div className="panel flex h-full flex-col gap-4 rounded-xl p-4">
+                          <div className="panel-title">NETWORK</div>
+                          <div className="text-xs uppercase tracking-[0.2em] text-slate-300">ONLINE · 194.187.249.35</div>
+                          <div className="panel-title mt-2">WORLD VIEW</div>
+                          <div className="globe mx-auto"></div>
+                          <div className="panel-title mt-4">TRAFFIC</div>
+                          <div className="bar-track h-2 w-full rounded-full">
+                            <div className="bar-fill h-2 w-[41%] rounded-full"></div>
                           </div>
-                          <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-400">
-                            <div className="flex items-center gap-3">
-                              <span>Flux</span>
-                              <div className="bar-track h-1.5 w-28 rounded-full">
-                                <div className="bar-fill h-1.5 w-[58%] rounded-full"></div>
+                        </div>
+
+                        <div className="panel col-span-2 flex h-full flex-col gap-3 rounded-xl p-4">
+                          <div className="panel-title">FILES</div>
+                          <div className="grid grid-cols-6 gap-3 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                            {["sys", "apps", "ports", "cache", "themes", "logs"].map((label) => (
+                              <div key={label} className="flex flex-col items-center gap-2">
+                                <div className="h-10 w-10 rounded-lg border border-slate-700 bg-slate-900/60"></div>
+                                <span>{label}</span>
                               </div>
-                            </div>
-                            <div className="globe scale-50"></div>
-                            <span className="text-slate-500">Stability 0.98</span>
+                            ))}
                           </div>
-                          <div ref={termDesktopRef} className="h-[50vh] w-full font-mono"></div>
-                        </motion.div>
+                        </div>
+
+                        <div className="panel flex h-full flex-col gap-3 rounded-xl p-4">
+                          <div className="panel-title">KEYBOARD</div>
+                          <div className="grid grid-cols-6 gap-2 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                            {"QWERTYASDFGHZXCVBN".split("").map((key) => (
+                              <div key={key} className="flex h-8 items-center justify-center rounded border border-slate-700 bg-slate-900/60">
+                                {key}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                            <span>Ctrl</span>
+                            <span>Alt</span>
+                            <span>Shift</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
