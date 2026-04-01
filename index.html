@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Daedalus OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.0/babel.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; }
+      body { font-family: "JetBrains Mono", monospace; background: #000; color: #fff; }
+      #root { width: 100%; height: 100%; }
+      .xterm { padding: 12px; }
+      .xterm-cursor { background: #fff; color: #000; }
+    </style>
+  </head>
+  <body style="background: #000; color: #fff;">
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useEffect, useRef, useState } = React;
+
+      // Global network registry for send/lstn functionality
+      const networkRegistry = {};
+      const messageLog = [];
+      let currentUser = `user-${Math.floor(Math.random() * 1000000)}`;
+
+      function App() {
+        const termShellRef = useRef(null);
+        const termDesktopRef = useRef(null);
+        const termInstanceRef = useRef(null);
+        const fitAddonRef = useRef(null);
+        const inputBufferRef = useRef("");
+        const fsRef = useRef(createFileSystem());
+        const cwdRef = useRef("/home/daedalus");
+        const historyRef = useRef([]);
+        const historyIndexRef = useRef(-1);
+        const listenerRef = useRef(null);
+
+        const [desktopOpen, setDesktopOpen] = useState(false);
+        const [clock, setClock] = useState(new Date());
+        const [messages, setMessages] = useState([]);
+
+        useEffect(() => {
+          const interval = setInterval(() => setClock(new Date()), 1000);
+          return () => clearInterval(interval);
+        }, []);
+
+        useEffect(() => {
+          if (!window.Terminal || !window.FitAddon) {
+            console.error("Missing xterm.js");
+            return;
+          }
+
+          const term = new window.Terminal({
+            fontFamily: "JetBrains Mono",
+            fontSize: 13,
+            letterSpacing: 1,
+            cursorBlink: true,
+            theme: {
+              background: "#000000",
+              foreground: "#ffffff",
+              cursor: "#ffffff",
+              selection: "rgba(255, 255, 255, 0.2)",
+            },
+          });
+
+          const fitAddon = new window.FitAddon.FitAddon();
+          term.loadAddon(fitAddon);
+          term.open(termShellRef.current);
+          fitAddon.fit();
+
+          term.writeln("┌─────────────────────────────────────┐");
+          term.writeln("│ Daedalus Runtime v2.1 - Kernel      │");
+          term.writeln("│ Type 'help' for available commands  │");
+          term.writeln("│ Your ID: " + currentUser.padEnd(19) + "│");
+          term.writeln("└─────────────────────────────────────┘");
+          term.write("> ");
+
+          term.onData((data) => handleTerminalData(data, term));
+          window.addEventListener("resize", () => {
+            try { fitAddon.fit(); } catch (e) {}
+          });
+
+          termInstanceRef.current = term;
+          fitAddonRef.current = fitAddon;
+        }, []);
+
+        const handleTerminalData = (data, term) => {
+          if (data === "\r") {
+            const input = inputBufferRef.current.trim();
+            if (input) historyRef.current.push(input);
+            historyIndexRef.current = historyRef.current.length;
+            inputBufferRef.current = "";
+            term.write("\r\n");
+            executeCommand(input, term);
+            return;
+          }
+
+          if (data === "\u007f") {
+            if (inputBufferRef.current.length > 0) {
+              inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+              term.write("\b \b");
+            }
+            return;
+          }
+
+          if (data === "\x03") {
+            term.write("^C\r\n");
+            term.write("> ");
+            inputBufferRef.current = "";
+            return;
+          }
+
+          if (data === "\x1b[A") {
+            if (historyIndexRef.current > 0) {
+              historyIndexRef.current--;
+              const cmd = historyRef.current[historyIndexRef.current];
+              while (inputBufferRef.current.length > 0) {
+                inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+                term.write("\b \b");
+              }
+              inputBufferRef.current = cmd;
+              term.write(cmd);
+            }
+            return;
+          }
+
+          if (data === "\x1b[B") {
+            if (historyIndexRef.current < historyRef.current.length) {
+              historyIndexRef.current++;
+              const cmd = historyIndexRef.current === historyRef.current.length ? "" : historyRef.current[historyIndexRef.current];
+              while (inputBufferRef.current.length > 0) {
+                inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+                term.write("\b \b");
+              }
+              inputBufferRef.current = cmd;
+              term.write(cmd);
+            }
+            return;
+          }
+
+          if (data >= String.fromCharCode(0x20) && data <= String.fromCharCode(0x7E)) {
+            inputBufferRef.current += data;
+            term.write(data);
+          }
+        };
+
+        const executeCommand = (input, term) => {
+          if (!input) {
+            term.write("> ");
+            return;
+          }
+
+          const [cmd, ...args] = input.split(" ");
+
+          if (cmd === "help") {
+            term.writeln("\n═══════ DAEDALUS KERNEL SHELL ═══════");
+            term.writeln("File System: ls, read (cat), create (touch), rm, echo");
+            term.writeln("Navigation: cd, pwd");
+            term.writeln("Network: send <user-id> <msg>, lstn (listen), tap (monitor)");
+            term.writeln("System: swp (processes), clear, exit, help");
+            term.writeln("════════════════════════════════════\n");
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "clear" || cmd === "cls") {
+            term.clear();
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "pwd") {
+            term.writeln(cwdRef.current);
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "exit" || cmd === "quit") {
+            if (desktopOpen) {
+              setDesktopOpen(false);
+            } else {
+              term.writeln("logout");
+            }
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "desktop") {
+            setDesktopOpen(true);
+            return;
+          }
+
+          if (cmd === "ls") {
+            const node = getNode(fsRef.current, cwdRef.current);
+            if (node && node.type === "dir") {
+              const files = Object.keys(node.children).sort();
+              term.writeln(files.length > 0 ? files.join("  ") : "(empty directory)");
+            } else {
+              term.writeln("ls: not a directory");
+            }
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "read" && args.length > 0) {
+            const path = args.join(" ");
+            const node = getNode(fsRef.current, resolvePath(cwdRef.current, path));
+            if (!node) {
+              term.writeln(`read: ${path}: no such file`);
+            } else if (node.type === "file") {
+              node.content.split("\n").forEach(line => line && term.writeln(line));
+            } else {
+              term.writeln(`read: ${path}: is a directory`);
+            }
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "create" && args.length > 0) {
+            const path = resolvePath(cwdRef.current, args.join(" "));
+            const entry = ensureParent(fsRef.current, path);
+            if (entry) {
+              entry.parent.children[entry.name] = { type: "file", content: "" };
+              term.writeln(`created: ${args[0]}`);
+            } else {
+              term.writeln(`create: invalid path`);
+            }
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "echo" && args.length > 0) {
+            const text = args.join(" ");
+            term.writeln(text);
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "rm" && args.length > 0) {
+            const path = resolvePath(cwdRef.current, args.join(" "));
+            const entry = ensureParent(fsRef.current, path);
+            if (entry && entry.parent.children[entry.name]) {
+              delete entry.parent.children[entry.name];
+              term.writeln(`removed: ${args[0]}`);
+            } else {
+              term.writeln(`rm: ${args[0]}: no such file`);
+            }
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "cd" && args.length > 0) {
+            const path = resolvePath(cwdRef.current, args.join(" "));
+            const node = getNode(fsRef.current, path);
+            if (node && node.type === "dir") {
+              cwdRef.current = path;
+            } else {
+              term.writeln(`cd: ${args[0]}: no such directory`);
+            }
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "swp") {
+            term.writeln("\nPID   NAME              CPU   MEM");
+            term.writeln("─────────────────────────────────");
+            term.writeln("1     init              0.1%  512K");
+            term.writeln("42    kernel_shell     2.3%  2.1M");
+            term.writeln("128   xterm            5.8%  8.2M\n");
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "send" && args.length >= 2) {
+            const targetUser = args[0];
+            const message = args.slice(1).join(" ");
+            const msg = { from: currentUser, to: targetUser, message, timestamp: new Date().toLocaleTimeString() };
+            messageLog.push(msg);
+            if (networkRegistry[targetUser]) {
+              term.writeln(`[SENT] to ${targetUser}: "${message}"`);
+            } else {
+              term.writeln(`[QUEUED] ${targetUser}: message stored (recipient offline)`);
+            }
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "lstn") {
+            if (listenerRef.current) {
+              term.writeln("already listening");
+              term.write("> ");
+              return;
+            }
+            networkRegistry[currentUser] = true;
+            listenerRef.current = setInterval(() => {
+              const newMessages = messageLog.filter(m => m.to === currentUser);
+              if (newMessages.length > 0 && newMessages.length > messages.length) {
+                const latest = newMessages[newMessages.length - 1];
+                term.writeln(`[MSG] ${latest.from}: ${latest.message}`);
+              }
+              setMessages(newMessages);
+            }, 500);
+            term.writeln(`[LISTENING] on ${currentUser}`);
+            term.write("> ");
+            return;
+          }
+
+          if (cmd === "tap") {
+            term.writeln("\n╔════════ NETWORK TAP ════════╗");
+            if (messageLog.length === 0) {
+              term.writeln("║ No messages captured       ║");
+            } else {
+              messageLog.forEach(msg => {
+                const line = `║ ${msg.from} → ${msg.to}`;
+                term.writeln(line);
+                term.writeln(`║   msg: "${msg.message.substring(0, 30)}${msg.message.length > 30 ? '...' : ''}"`);
+              });
+            }
+            term.writeln("╚═══════════════════════════╝\n");
+            term.write("> ");
+            return;
+          }
+
+          term.writeln(`unknown command: ${cmd}`);
+          term.write("> ");
+        };
+
+        const terminalUI = (
+          <div style={{ width: "100%", height: "100%", backgroundColor: "#000", color: "#fff", display: "flex" }}>
+            <div style={{ flex: 1, display: desktopOpen ? "none" : "block" }}>
+              <div ref={termShellRef} style={{ width: "100%", height: "100%", fontFamily: "JetBrains Mono" }}></div>
+            </div>
+
+            {desktopOpen && (
+              <div style={{ width: "100%", height: "100%", backgroundColor: "#000", color: "#fff", display: "flex", flexDirection: "column" }}>
+                <div style={{ height: "2rem", borderBottom: "2px solid #fff", backgroundColor: "#111", display: "flex", justifyContent: "space-between", alignItems: "center", paddingLeft: "1rem", paddingRight: "1rem" }}>
+                  <span style={{ fontWeight: "bold" }}>Daedalus Desktop - {currentUser}</span>
+                  <button onClick={() => setDesktopOpen(false)} style={{ background: "none", border: "1px solid #fff", color: "#fff", padding: "0.25rem 0.75rem", cursor: "pointer", fontFamily: "JetBrains Mono", fontSize: "0.9rem" }}>
+                    exit
+                  </button>
+                </div>
+
+                <div style={{ flex: 1, display: "flex", padding: "1rem", gap: "2rem" }}>
+                  {/* File Manager */}
+                  <div style={{ flex: 1, borderRight: "1px solid #666", paddingRight: "1rem" }}>
+                    <h3 style={{ marginBottom: "1rem", fontSize: "1rem", textDecoration: "underline" }}>FILE MANAGER</h3>
+                    <div style={{ fontSize: "0.9rem", lineHeight: "1.8", fontFamily: "JetBrains Mono" }}>
+                      <div style={{ color: "#aaa" }}>📁 /home/daedalus</div>
+                      <div style={{ marginLeft: "1rem", color: "#888" }}>├─ 📄 readme.txt</div>
+                      <div style={{ marginLeft: "1rem", color: "#888" }}>└─ 📁 documents/</div>
+                      <div style={{ marginTop: "1.5rem", borderTop: "1px solid #444", paddingTop: "1rem", color: "#aaa" }}>
+                        <div>Total files: 2</div>
+                        <div>Disk usage: 2.1 MB / 512 MB</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Network Monitor */}
+                  <div style={{ flex: 1, borderRight: "1px solid #666", paddingRight: "1rem" }}>
+                    <h3 style={{ marginBottom: "1rem", fontSize: "1rem", textDecoration: "underline" }}>NETWORK</h3>
+                    <div style={{ fontSize: "0.9rem", lineHeight: "1.8", fontFamily: "JetBrains Mono" }}>
+                      <div>User ID: <span style={{ color: "#0f0" }}>{currentUser}</span></div>
+                      <div>Status: <span style={{ color: listenerRef.current ? "#0f0" : "#888" }}>{listenerRef.current ? "LISTENING" : "OFFLINE"}</span></div>
+                      <div>Connections: {Object.keys(networkRegistry).length}</div>
+                      <div>Messages: {messages.length}</div>
+                      <div style={{ marginTop: "1rem" }}>
+                        <button onClick={() => {
+                          if (!listenerRef.current) {
+                            networkRegistry[currentUser] = true;
+                            listenerRef.current = true;
+                            setMessages([]);
+                          }
+                        }} style={{ background: "#222", border: "1px solid #fff", color: "#fff", padding: "0.5rem 1rem", cursor: "pointer", fontFamily: "JetBrains Mono", marginRight: "0.5rem" }}>
+                          lstn
+                        </button>
+                        <button onClick={() => {
+                          const targetUser = prompt("Enter recipient user ID:");
+                          if (targetUser) {
+                            const msg_text = prompt("Enter message:");
+                            if (msg_text) {
+                              const msg = { from: currentUser, to: targetUser, message: msg_text, timestamp: new Date().toLocaleTimeString() };
+                              messageLog.push(msg);
+                            }
+                          }
+                        }} style={{ background: "#222", border: "1px solid #fff", color: "#fff", padding: "0.5rem 1rem", cursor: "pointer", fontFamily: "JetBrains Mono" }}>
+                          send
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System Info */}
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ marginBottom: "1rem", fontSize: "1rem", textDecoration: "underline" }}>SYSTEM</h3>
+                    <div style={{ fontSize: "0.9rem", lineHeight: "1.8", fontFamily: "JetBrains Mono" }}>
+                      <div>CPU: 2.1 GHz</div>
+                      <div>RAM: 512 MB</div>
+                      <div>Kernel: v2.1</div>
+                      <div style={{ marginTop: "1rem", borderTop: "1px solid #444", paddingTop: "1rem" }}>
+                        <div>Time: {clock.toLocaleTimeString()}</div>
+                        <div>Date: {clock.toLocaleDateString()}</div>
+                        <div>Uptime: 2h 34m</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ height: "12rem", borderTop: "2px solid #fff", backgroundColor: "#111", fontFamily: "JetBrains Mono", fontSize: "0.85rem", padding: "0.75rem", overflow: "auto" }} ref={termDesktopRef}>
+                  <div style={{ color: "#666" }}>Message Log:</div>
+                  {messages.map((msg, i) => (
+                    <div key={i} style={{ marginTop: "0.25rem", color: "#aaa", fontSize: "0.8rem" }}>
+                      [{msg.timestamp}] {msg.from}: {msg.message}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+        return terminalUI;
+      }
+
+      function createFileSystem() {
+        return {
+          type: "dir",
+          children: {
+            home: {
+              type: "dir",
+              children: {
+                daedalus: {
+                  type: "dir",
+                  children: {
+                    "readme.txt": { type: "file", content: "Daedalus OS v2.1\nKernel Shell Terminal\nUse 'help' for commands\n\nNetwork messaging enabled.\nUse 'send <user-id> <message>' to communicate." },
+                    "documents": { type: "dir", children: {} },
+                  },
+                },
+              },
+            },
+          },
+        };
+      }
+
+      function normalizePath(path) {
+        const parts = path.split("/").filter(Boolean);
+        const stack = [];
+        parts.forEach(part => {
+          if (part === ".") return;
+          if (part === "..") stack.pop();
+          else stack.push(part);
+        });
+        return "/" + stack.join("/");
+      }
+
+      function resolvePath(cwd, inputPath) {
+        if (!inputPath || inputPath === ".") return cwd;
+        if (inputPath.startsWith("/")) return normalizePath(inputPath);
+        return normalizePath(`${cwd}/${inputPath}`);
+      }
+
+      function getNode(fsRoot, path) {
+        const parts = path.split("/").filter(Boolean);
+        let current = fsRoot;
+        for (const part of parts) {
+          if (!current || current.type !== "dir") return null;
+          current = current.children[part];
+        }
+        return current;
+      }
+
+      function ensureParent(fsRoot, path) {
+        const parts = path.split("/").filter(Boolean);
+        const name = parts.pop();
+        let current = fsRoot;
+        for (const part of parts) {
+          if (!current.children[part]) return null;
+          current = current.children[part];
+          if (current.type !== "dir") return null;
+        }
+        return { parent: current, name };
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
+
