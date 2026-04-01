@@ -1,4 +1,4 @@
-# IcarusK (previously Daedalus)
+# Daedalus
 
 A web-based OS simulator with a terminal-first interface and a toggleable desktop view.
 The local kernel is now written in **C** (C11) for speed, direct system access, and zero runtime overhead.
